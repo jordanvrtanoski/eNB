@@ -159,7 +159,6 @@ def session_dict_initialization(session_dict):
     session_dict['INT-ALG'] = 0 
     session_dict['ENC-KEY'] = None
     session_dict['INT-KEY'] = None  
-    session_dict['APN'] = APN
     
     
     session_dict['NAS-SMS-MT'] = None
@@ -668,7 +667,9 @@ def Reset(dic):
     IEs.append({'id': 92, 'value': ('ResetType', ('s1-Interface', 'reset-all')), 'criticality': 'ignore'})
     
     val = ('initiatingMessage', {'procedureCode': 14, 'value': ('Reset', {'protocolIEs': IEs}), 'criticality': 'ignore'})
-    dic = eMENU.print_log(dic, "S1AP: sending Reset")
+    dic['ENB-UE-S1AP-ID'] = dic['ENB-UE-S1AP-ID']+1
+
+    dic = eMENU.print_log(dic, "S1AP: sending Reset - New ENB-UE-S1AP-ID: {}".format(dic['ENB-UE-S1AP-ID']))
     return val
     
 ######################################################################################################################################
@@ -1122,7 +1123,7 @@ def ProcessUplinkNAS(message_type, dic):
         if dic['ATTACH-TYPE'] == 6: #If Attach Type = EPS Emergency PDN Connectity is with Emergency APN 
             dic['NAS-ENC'] = nas_pdn_connectivity(0, 1, dic['PDP-TYPE'],None, pco, None,4)        
         else:
-            dic['NAS-ENC'] = nas_pdn_connectivity(0, 1, dic['PDP-TYPE'],eNAS.encode_apn(APN), pco, None)
+            dic['NAS-ENC'] = nas_pdn_connectivity(0, 1, dic['PDP-TYPE'],eNAS.encode_apn(dic['APN']), pco, None)
         dic['UP-COUNT'] += 1 
         dic['DIR'] = 0
         nas_encrypted = nas_encrypt(dic)
@@ -1893,8 +1894,13 @@ def ProcessInitialContextSetupRequest(IEs, dic):
                     dic['SGW-TEID'].append(None)
                     
                 position = dic['RAB-ID'].index(e_RAB_id)                
-                                       
-                dic['SGW-GTP-ADDRESS'][position] = (first_eRAB['transportLayerAddress'][0]).to_bytes(4, byteorder='big')
+              
+                transportLayerAddress = first_eRAB['transportLayerAddress'][0]
+                if first_eRAB['transportLayerAddress'][0] <= int("FFFFFFFF",16):
+                    dic['SGW-GTP-ADDRESS'][position] = transportLayerAddress.to_bytes(4, byteorder='big')
+                else:
+                    dic['SGW-GTP-ADDRESS'][position] = transportLayerAddress.to_bytes(160, byteorder='big')[0:3]
+
                 dic['SGW-TEID'][position] = first_eRAB['gTP-TEID']
                 if 'nAS-PDU' in first_eRAB:
                     nas.append(first_eRAB['nAS-PDU'])
@@ -2535,6 +2541,7 @@ def main():
     parser.add_option("--tac1", dest="tac1", help="1st tracking area code")
     parser.add_option("--tac2", dest="tac2", help="2nd tracking area code")
     parser.add_option("-Z", "--gtp-kernel", action="store_true", dest="gtp_kernel", help="Use GTP Kernel. Needs libgtpnl", default=False)
+    parser.add_option("-a", "--apn", dest="apn", help="APN")
     
     (options, args) = parser.parse_args()
     #Detect if no options set:
@@ -2608,6 +2615,11 @@ def main():
         subprocess.call("killall gtp-link", shell=True)
     else:
         session_dict['GTP-KERNEL'] = False
+
+    if options.apn is not None:
+        session_dict['APN'] = options.apn
+    else:
+        session_dict['APN'] = APN
     
     server_address = (options.mme_ip, 36412)
 

@@ -1,0 +1,1 @@
+python3 eNB_LOCAL.py --ip=10.37.132.7 --mme=10.37.132.6 --gateway_ip_address=10.37.132.7 --imsi=001010000000001 --ki=00112233445566778899aabbccddeeff --opc=63BFA50EE6523365FF14C1F45F88737D --operator=00101 --tac1=1 --apn=apn1
