@@ -1471,7 +1471,18 @@ def ProcessDownlinkNAS(dic):
                 dic['TMSI'] = i[1]
             elif i[0] == 'location area identification':
                 dic['LAI'] = i[1]
-                
+        
+        if dic['NAS'] == None:
+            dic['NAS-ENC'] = nas_tracking_area_update_complete()
+            dic['UP-COUNT'] += 1
+            dic['DIR'] = 0
+            nas_encrypted = nas_encrypt(dic)
+            dic['NAS-ENC'] = nas_encrypted
+            mac_bytes = nas_hash(dic)
+            dic['NAS'] = nas_security_protected_nas_message(2,mac_bytes,bytes([dic['UP-COUNT']%256]),dic['NAS-ENC'])
+            dic = eMENU.print_log(dic, "NAS: sending trackingAreaUpdateComplete")
+
+        time.sleep(2)
 
        
 
@@ -2133,7 +2144,8 @@ def ProcessUEContextReleaseCommand(IEs, dic):
     #if uecontext release was triggered by csfb
     if dic['UECONTEXTRELEASE-CSFB'] == True:
         dic['UECONTEXTRELEASE-CSFB'] = False
-        
+
+    time.sleep(2)    
     return val, dic
 
 
@@ -2162,6 +2174,11 @@ def ProcessPaging(IEs, dic):
     
     val = None
     SEND_NAS = False
+
+    if dic['STATE'] > 0 :
+        dic = eMENU.print_log(dic, "Increasig ENB-UE-S1AP-ID")
+        dic['ENB-UE-S1AP-ID'] = dic['ENB-UE-S1AP-ID'] + 1
+
     for i in IEs:
         if i['id'] == 43:
             if i['value'][1][0] == 's-TMSI':

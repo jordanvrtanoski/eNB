@@ -58,6 +58,7 @@ menu_list = [ '  0. Show current settings',     \
               ' 60. Set Non-IP Packet to Send',            \
               ' 61. Send Non-IP Packet',          \
               ' ',                              \
+              ' 98. New S1 Session',            \
               ' 99. Clear Log',                 \
               '  Q. Quit' ]
 
@@ -385,7 +386,8 @@ def ProcessMenu(PDU, client, session_dict, msg):
 
         
     elif msg == "22\n": 
-        if session_dict['STATE'] >1: 
+        if session_dict['STATE'] >1:
+            session_dict['ENB-UE-S1AP-ID'] = session_dict['ENB-UE-S1AP-ID'] + 1
             session_dict = ProcessUplinkNAS('tracking area update request', session_dict)
             PDU.set_val(InitialUEMessage(session_dict))
             message = PDU.to_aper()  
@@ -552,6 +554,10 @@ def ProcessMenu(PDU, client, session_dict, msg):
             message = PDU.to_aper()  
             client = set_stream(client, 1)
             bytes_sent = client.send(message)
+
+    elif msg == "98\n":
+        session_dict['ENB-UE-S1AP-ID'] = session_dict['ENB-UE-S1AP-ID'] + 1
+        session_dict = print_log(session_dict, "ENB-UE-S1AP-ID: {}".format(session_dict['ENB-UE-S1AP-ID']))    
 
 
     elif msg == "99\n":
