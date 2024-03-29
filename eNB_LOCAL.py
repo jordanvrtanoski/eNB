@@ -185,7 +185,8 @@ def session_dict_initialization(session_dict):
     
     session_dict['ENCODED-IMSI'] = eNAS.encode_imsi(session_dict['IMSI'])
     session_dict['ENCODED-IMEI'] = eNAS.encode_imei(IMEISV)
-    session_dict['ENCODED-GUTI'] = eNAS.encode_guti(session_dict['PLMN'],32769,1,12345678)
+    if session_dict['ENCODED-GUTI'] == None:
+        session_dict['ENCODED-GUTI'] = eNAS.encode_guti(session_dict['PLMN'],32769,1,12345678)
     
     session_dict['S-TMSI'] = None
     
@@ -212,6 +213,7 @@ def session_dict_initialization(session_dict):
     
     session_dict['PROCESS-PAGING'] = True
     session_dict['PCSCF-RESTORATION'] = False
+    session_dict['NAS-DELIVERY-INDICATION'] = 0
 
     session_dict['NAS-KEY-SET-IDENTIFIER'] = 0
     
@@ -703,6 +705,7 @@ def nas_pco(pdp_type,pcscf_restoration):
             return b'\x80\x80\x21\x1c\x01\x00\x00\x1c\x81\x06\x00\x00\x00\x00\x82\x06\x00\x00\x00\x00\x83\x06\x00\x00\x00\x00\x84\x06\x00\x00\x00\x00\x00\x03\x00\x00\x0c\x00\x00\x01\x00\x00\x0e\x00'
         else:
             return b'\x80\x80\x21\x1c\x01\x00\x00\x1c\x81\x06\x00\x00\x00\x00\x82\x06\x00\x00\x00\x00\x83\x06\x00\x00\x00\x00\x84\x06\x00\x00\x00\x00\x00\x03\x00\x00\x0c\x00\x00\x01\x00\x00\x12\x00\x00\x0e\x00'
+
      
 #-------------------------------------------------------------------#
 ### ESM ### :
@@ -1172,6 +1175,7 @@ def ProcessUplinkNAS(message_type, dic):
 
     elif message_type == 'uplink nas transport': 
         SMS = b'\x19\x01\x3c\x00\x02\x00\x07\x91\x53\x91\x26\x01\x00\x00\x30\x01\x02\x0c\x91\x53\x91\x66\x78\x92\x30\x00\x00\x27\x45\xb7\x3d\x1d\x6e\xb5\xcb\xa0\x7a\x1b\x34\x6d\x4e\x41\x73\xb3\x19\x04\x0f\xcb\xc3\x20\x73\x58\x5f\x96\x83\xea\x6d\x10\xbd\x3c\xa7\x97\x01'    
+        
         dic['NAS-ENC'] = nas_uplink_nas_transport(SMS)
         dic['UP-COUNT'] += 1 
         dic['DIR'] = 0
@@ -1443,7 +1447,6 @@ def ProcessDownlinkNAS(dic):
             if i[0] == 'guti':
                 dic = eMENU.print_log(dic, str(eNAS.decode_eps_mobile_identity(dic['GUTI'] )))
                 if dic['GUTI'] != i[1] and dic['NAS'] == None: # new GUTI assigned
-                    
                     dic['NAS-ENC'] = nas_tracking_area_update_complete()
                     dic['UP-COUNT'] += 1 
                     dic['DIR'] = 0
@@ -1798,6 +1801,20 @@ def UplinkNASTransport(dic):
     return val    
 
 
+def UECapabilityInfoIndication(dic):
+
+    IEs = []
+    IEs.append({'id': 0, 'value': ('MME-UE-S1AP-ID', dic['MME-UE-S1AP-ID']), 'criticality': 'reject'})
+    IEs.append({'id': 8, 'value': ('ENB-UE-S1AP-ID', dic['ENB-UE-S1AP-ID']), 'criticality': 'reject'})
+    IEs.append({'id': 74, 'value': ('UERadioCapability', dic['UE-RADIO-CAPABILITY']), 'criticality': 'ignore'})
+
+
+    val = ('initiatingMessage', {'procedureCode': 22, 'value': ('UECapabilityInfoIndication', {'protocolIEs': IEs}), 'criticality': 'ignore'})
+        
+    dic = eMENU.print_log(dic, "S1AP: sending UECapabilityInfoIndication")
+    return val    
+
+
 def ProcessLocationReportingControl(IEs, dic):
 
     for i in IEs:
@@ -1823,7 +1840,8 @@ def ProcessLocationReportingControl(IEs, dic):
 
 
 def ProcessDownlinkNASTransport(IEs, dic):
-    
+    nas_delivery = False
+    nas = None
     for i in IEs:
         if i['id'] == 0:
             mme_ue_s1ap_id = i['value'][1]
@@ -1831,13 +1849,28 @@ def ProcessDownlinkNASTransport(IEs, dic):
         elif i['id'] == 26:
             nas_pdu = i['value'][1]
             dic['NAS'] = nas_pdu
+            nas = nas_pdu
+        elif i['id'] == 249:
+            if dic['NAS-DELIVERY-INDICATION'] > 0:
+                nas_delivery = True
+                
             
 
     dic = ProcessDownlinkNAS(dic)
     
     val = []
     
-    if dic['NAS'] != None or dic['NAS-SMS-MT'] != None:
+    if dic['NAS'] != None or dic['NAS-SMS-MT'] != None or nas_delivery == True:
+        if nas_delivery == True:
+            IEs = []
+            IEs.append({'id': 0, 'value': ('MME-UE-S1AP-ID', dic['MME-UE-S1AP-ID']), 'criticality': 'reject'})
+            IEs.append({'id': 8, 'value': ('ENB-UE-S1AP-ID', dic['ENB-UE-S1AP-ID']), 'criticality': 'reject'})
+            if dic['NAS-DELIVERY-INDICATION'] == 2 and nas is not None:
+                IEs.append({'id': 26, 'value': ('NAS-PDU', nas), 'criticality': 'ignore'})
+                IEs.append({'id': 2, 'value': ('Cause', ('radioNetwork', 'radio-connection-with-ue-lost')), 'criticality': 'ignore'})
+                val.append(('initiatingMessage', {'procedureCode': 16, 'value': ('NASNonDeliveryIndication', {'protocolIEs': IEs}), 'criticality': 'ignore'}))
+            else:
+                val.append(('initiatingMessage', {'procedureCode': 57, 'value': ('NASDeliveryIndication', {'protocolIEs': IEs}), 'criticality': 'ignore'}))
         if dic['NAS'] != None:
             IEs = []
             IEs.append({'id': 0, 'value': ('MME-UE-S1AP-ID', dic['MME-UE-S1AP-ID']), 'criticality': 'reject'})
@@ -1911,6 +1944,9 @@ def ProcessInitialContextSetupRequest(IEs, dic):
 
         
     val = []
+
+    if dic['UE-RADIO-CAPABILITY'] is not None: 
+        val.append(UECapabilityInfoIndication(dic))
     
     IEs = []
     IEs.append({'id': 0, 'value': ('MME-UE-S1AP-ID', dic['MME-UE-S1AP-ID']), 'criticality': 'ignore'})
@@ -2276,9 +2312,12 @@ def SecondaryRATDataUsageReport(dic):
 
 
 
-def ProcessS1AP(PDU, client, session_dict):
+def ProcessS1AP(PDU, client, session_dict, client_number):
 
     buffer = client.recv(4096)
+
+    if session_dict['MME-IN-USE'] != client_number:
+        return PDU, client, session_dict
     
     PDU.from_aper(buffer)
     
@@ -2535,7 +2574,13 @@ def main():
     parser.add_option("--tac1", dest="tac1", help="1st tracking area code")
     parser.add_option("--tac2", dest="tac2", help="2nd tracking area code")
     parser.add_option("-Z", "--gtp-kernel", action="store_true", dest="gtp_kernel", help="Use GTP Kernel. Needs libgtpnl", default=False)
-    
+    parser.add_option("-S", "--maxseg", dest="maxseg", help="SCTP MAX_SEG (>463 bytes)")
+    parser.add_option("--ue-radio-capability", dest="ueradiocapability", help="UERadioCapability in hex string")
+    parser.add_option("-G", "--guti", dest="guti", help="GUTI in format <mcc+mcn>-<mme-group-id>-<mme-code>-<m-tmsi>") 
+    parser.add_option("--mme-2", dest="mme_2_ip", help="2nd MME IP Address")
+    parser.add_option("--gtp-u", dest="gtp_u_ip", help="GTP-U address sent in S1AP. Used when eNB is behind NAT")
+
+
     (options, args) = parser.parse_args()
     #Detect if no options set:
     if len(sys.argv) <= 1:
@@ -2608,8 +2653,21 @@ def main():
         subprocess.call("killall gtp-link", shell=True)
     else:
         session_dict['GTP-KERNEL'] = False
+
+    if options.ueradiocapability is not None:
+        session_dict['UE-RADIO-CAPABILITY'] = unhexlify(options.ueradiocapability)
+    else:
+        session_dict['UE-RADIO-CAPABILITY'] = None
+
+    if options.guti is not None:
+        aux = options.guti.split ('-')
+        session_dict['ENCODED-GUTI'] = eNAS.encode_guti(aux[0], int(aux[1]), int(aux[2]), int(aux[3]))
+    else:
+        session_dict['ENCODED-GUTI'] = None
     
     server_address = (options.mme_ip, 36412)
+    if options.mme_2_ip is not None:
+        server_address_2 = (options.mme_2_ip, 36412)
 
     #socket options
     client = socket.socket(socket.AF_INET,socket.SOCK_STREAM,socket.IPPROTO_SCTP) 
@@ -2618,7 +2676,21 @@ def main():
     sctp_default_send_param = bytearray(client.getsockopt(132,10,32))
     sctp_default_send_param[11]= 18
     client.setsockopt(132, 10, sctp_default_send_param)
-        
+
+    if options.maxseg is not None:
+        if int(options.maxseg)>463:
+            client.setsockopt(132,13,int(options.maxseg))
+    
+    if options.mme_2_ip is not None:
+        client2 = socket.socket(socket.AF_INET,socket.SOCK_STREAM,socket.IPPROTO_SCTP) 
+        client2.bind((options.eNB_ip, 0))
+   
+        sctp_default_send_param = bytearray(client2.getsockopt(132,10,32))
+        sctp_default_send_param[11]= 18
+        client2.setsockopt(132, 10, sctp_default_send_param)  
+    else:
+        client2 = None     
+
     #variables initialization 
     PDU = S1AP.S1AP_PDU_Descriptions.S1AP_PDU
     
@@ -2628,11 +2700,16 @@ def main():
     
     # settting initial settings
     session_dict = session_dict_initialization(session_dict)
-    session_dict['ENB-GTP-ADDRESS-INT'] = ip2int(options.eNB_ip)
+    if options.gtp_u_ip is not None:
+        session_dict['ENB-GTP-ADDRESS-INT'] = ip2int(options.gtp_u_ip)
+    else:
+        session_dict['ENB-GTP-ADDRESS-INT'] = ip2int(options.eNB_ip)
     session_dict['ENB-GTP-ADDRESS'] = socket.inet_aton(options.eNB_ip)
 
 
     client.connect(server_address)
+    if options.mme_2_ip is not None:
+        client2.connect(server_address_2)
 
     s_gtpu = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     if options.gtp_kernel == False: 
@@ -2659,9 +2736,13 @@ def main():
 
   
     eMENU.print_menu(session_dict['LOG'])
+
+    session_dict['MME-IN-USE'] = 1
   
    
     socket_list = [sys.stdin ,client, dev_nbiot]
+    if options.mme_2_ip is not None:
+        socket_list.append(client2)
     
     while True:
         
@@ -2669,12 +2750,17 @@ def main():
         
         for sock in read_sockets:
             if sock == client:
-                PDU, client, session_dict = ProcessS1AP(PDU, client, session_dict)
-               
+                PDU, client, session_dict = ProcessS1AP(PDU, client, session_dict, 1)
+            
+            elif sock == client2:
+                PDU, client2, session_dict = ProcessS1AP(PDU, client2, session_dict, 2)
+
             elif sock == sys.stdin:        
                 msg = sys.stdin.readline()
-                
-                PDU, client, session_dict = eMENU.ProcessMenu(PDU, client, session_dict, msg)
+                if session_dict['MME-IN-USE'] == 1:
+                    PDU, client, session_dict = eMENU.ProcessMenu(PDU, client, session_dict, msg)
+                elif session_dict['MME-IN-USE'] == 2:
+                    PDU, client2, session_dict = eMENU.ProcessMenu(PDU, client2, session_dict, msg)
                 
                 
             elif sock == dev_nbiot:
@@ -2691,8 +2777,14 @@ def main():
                     
                     
                     message = PDU.to_aper()  
-                    client = set_stream(client, 1)
-                    bytes_sent = client.send(message)
+                    if session_dict['MME-IN-USE'] == 1:
+                        client = set_stream(client, 0)
+                        bytes_sent = client.send(message)
+                        client = set_stream(client, 1)
+                    elif session_dict['MME-IN-USE'] == 2:
+                        client2 = set_stream(client2, 0)
+                        bytes_sent = client2.send(message)
+                        client2 = set_stream(client2, 1)
 
 
 

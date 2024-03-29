@@ -2,6 +2,7 @@
 import sys, os
 import datetime
 from eNB_LOCAL import *
+import random
  
 # Main definition - constants
 menu_actions  = {}  
@@ -34,6 +35,7 @@ menu_list = [ '  0. Show current settings',     \
               ' 11. Set SMS (AdditionalUpdateType)',             \
               ' 12. Set eNB-CellID/TAC',             \
               ' 13. Set P-CSCF Restoration Support',             \
+              ' 14. Set Delivery Indication',        \
               ' ',                              \
               ' 15. S1 Setup',          \
               ' 16. S1 Reset',          \
@@ -58,6 +60,7 @@ menu_list = [ '  0. Show current settings',     \
               ' 60. Set Non-IP Packet to Send',            \
               ' 61. Send Non-IP Packet',          \
               ' ',                              \
+              ' 80. Set MME to use',            \
               ' 99. Clear Log',                 \
               '  Q. Quit' ]
 
@@ -305,6 +308,17 @@ def ProcessMenu(PDU, client, session_dict, msg):
         elif session_dict['PCSCF-RESTORATION'] == False:            
             session_dict['PCSCF-RESTORATION'] = True
             session_dict = print_log(session_dict, "P-CSCF Restoration Support: True") 
+
+    elif msg == "14\n":
+        if session_dict['NAS-DELIVERY-INDICATION'] == 0:
+            session_dict['NAS-DELIVERY-INDICATION'] = 1
+            session_dict = print_log(session_dict, "Send NAS Delivery")
+        elif session_dict['NAS-DELIVERY-INDICATION'] == 1:            
+            session_dict['NAS-DELIVERY-INDICATION'] = 2
+            session_dict = print_log(session_dict, "Send NAS Non-Delivery")            
+        elif session_dict['NAS-DELIVERY-INDICATION'] == 2:            
+            session_dict['NAS-DELIVERY-INDICATION'] = 0
+            session_dict = print_log(session_dict, "Do not send NAS Delivery/Non-Delivery")             
            
     elif msg == "15\n":
         PDU.set_val(S1SetupRequest(session_dict))
@@ -340,7 +354,8 @@ def ProcessMenu(PDU, client, session_dict, msg):
             mac_bytes = nas_hash(session_dict)
             session_dict['NAS'] = nas_security_protected_nas_message(1,mac_bytes,bytes([session_dict['UP-COUNT']%256]),session_dict['NAS-ENC'])
             session_dict = print_log(session_dict, "NAS: sending AttachRequest")
-
+            
+            session_dict['ENB-UE-S1AP-ID'] = random.randrange(10000)
             PDU.set_val(InitialUEMessage(session_dict))
             message = PDU.to_aper()
             client = set_stream(client, 1)
@@ -361,6 +376,7 @@ def ProcessMenu(PDU, client, session_dict, msg):
                 session_dict['PCSCF-RESTORATION']
             )
             session_dict['SQN'] = 0
+            session_dict['ENB-UE-S1AP-ID'] = random.randrange(10000)
             PDU.set_val(InitialUEMessage(session_dict))
             message = PDU.to_aper()
             client = set_stream(client, 1)
@@ -375,6 +391,7 @@ def ProcessMenu(PDU, client, session_dict, msg):
             if session_dict['MME-UE-S1AP-ID'] > 0:
                 PDU.set_val(UplinkNASTransport(session_dict))
             else:
+                session_dict['ENB-UE-S1AP-ID'] = random.randrange(10000)
                 PDU.set_val(InitialUEMessage(session_dict))
             message = PDU.to_aper()  
             client = set_stream(client, 1)
@@ -386,6 +403,7 @@ def ProcessMenu(PDU, client, session_dict, msg):
         
     elif msg == "22\n": 
         if session_dict['STATE'] >1: 
+            session_dict['ENB-UE-S1AP-ID'] = random.randrange(10000)
             session_dict = ProcessUplinkNAS('tracking area update request', session_dict)
             PDU.set_val(InitialUEMessage(session_dict))
             message = PDU.to_aper()  
@@ -394,7 +412,8 @@ def ProcessMenu(PDU, client, session_dict, msg):
 
             
     elif msg == "23\n": 
-        if session_dict['STATE'] >1: 
+        if session_dict['STATE'] >1:
+            session_dict['ENB-UE-S1AP-ID'] = random.randrange(10000) 
             session_dict = ProcessUplinkNAS('tracking area update request periodic', session_dict)
             PDU.set_val(InitialUEMessage(session_dict))
             message = PDU.to_aper()  
@@ -405,6 +424,7 @@ def ProcessMenu(PDU, client, session_dict, msg):
 
     elif msg == "24\n":
         if session_dict['STATE'] >1: 
+            session_dict['ENB-UE-S1AP-ID'] = random.randrange(10000)
             session_dict = ProcessUplinkNAS('service request', session_dict)
             PDU.set_val(InitialUEMessage(session_dict))
             message = PDU.to_aper()    
@@ -427,7 +447,8 @@ def ProcessMenu(PDU, client, session_dict, msg):
             bytes_sent = client.send(message)
 
     elif msg == "30\n":
-        if session_dict['STATE'] >1: 
+        if session_dict['STATE'] >1:
+            session_dict['ENB-UE-S1AP-ID'] = random.randrange(10000) 
             session_dict = ProcessUplinkNAS('control plane service request', session_dict)
             PDU.set_val(InitialUEMessage(session_dict))
             message = PDU.to_aper()  
@@ -553,6 +574,12 @@ def ProcessMenu(PDU, client, session_dict, msg):
             client = set_stream(client, 1)
             bytes_sent = client.send(message)
 
+    elif msg == "80\n":
+        if session_dict['MME-IN-USE'] == 1:
+            session_dict['MME-IN-USE'] = 2       
+        elif session_dict['MME-IN-USE'] == 2:
+            session_dict['MME-IN-USE'] = 1
+        session_dict = print_log(session_dict, "MME in use: " + str(session_dict['MME-IN-USE'])) 
 
     elif msg == "99\n":
         session_dict['LOG'] = []
